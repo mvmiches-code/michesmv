@@ -321,9 +321,25 @@
 
       <textarea id="notaExtra" rows="2" placeholder="Alguna nota (sin salsa, extra limón...)" style="width:100%;background:#111118;border:1px solid rgba(255,255,255,0.09);border-radius:8px;color:#f0f0f0;padding:8px 10px;font-size:0.82rem;font-family:inherit;resize:none;margin-bottom:12px;box-sizing:border-box;"></textarea>
 
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
         <span style="font-size:0.72rem;letter-spacing:2px;text-transform:uppercase;color:#777;">Total estimado</span>
         <span id="totalVal" style="font-family:'Bebas Neue',sans-serif;font-size:1.8rem;color:#e8ff00;letter-spacing:2px;">$0</span>
+      </div>
+
+      <!-- BILLETE Y CAMBIO -->
+      <div style="background:#111118;border-radius:8px;padding:10px 12px;border:1px solid rgba(255,255,255,0.09);margin-bottom:12px;">
+        <div style="font-size:0.65rem;letter-spacing:2px;text-transform:uppercase;color:#777;margin-bottom:7px;">💵 ¿Con cuánto vas a pagar?</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+          <span style="color:#aaa;font-size:1rem;font-weight:700;">$</span>
+          <input id="billeteInput" type="number" min="0" placeholder="Ej: 200"
+            oninput="actualizarCambio()"
+            style="flex:1;background:#0a0a0f;border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:#f0f0f0;padding:7px 10px;font-size:1rem;font-family:'Barlow Condensed',sans-serif;font-weight:600;letter-spacing:1px;outline:none;"/>
+        </div>
+        <div id="cambioBox" style="display:none;align-items:center;justify-content:space-between;">
+          <span style="font-size:0.7rem;letter-spacing:1.5px;text-transform:uppercase;color:#777;">Tu cambio</span>
+          <span id="cambioVal" style="font-family:'Bebas Neue',sans-serif;font-size:1.5rem;color:#e8ff00;letter-spacing:2px;">$0</span>
+        </div>
+        <div id="sinCambioMsg" style="display:none;font-size:0.75rem;color:#ff4d00;">⚠️ Ese monto no alcanza para tu pedido</div>
       </div>
 
       <a id="waLink" href="#" target="_blank" onclick="return enviarWA()">
@@ -382,145 +398,215 @@ const MENU = [
   ]}
 ];
 
+// pedido: { [id]: { vi, qty } }
+// Para micheladas: permitimos múltiples variantes al mismo tiempo
+// pedidoMiches: array de { vi, qty, escarche }  — una entrada por variante elegida
 let pedido = {};
-// escarchesPorMiche[i] = sabor elegido para la miche número i (null = sin escarche)
-let escarchesPorMiche = [];
+let pedidoMiches = []; // [{vi, qty, escarche}, ...]
 
-function toggleEscarche(idx, sabor) {
-  // Si toco el mismo botón que ya está activo, lo quito (toggle)
-  escarchesPorMiche[idx] = (escarchesPorMiche[idx] === sabor) ? null : sabor;
-  renderMenu();
-  actualizarResumen();
+// ── BILLETE ──
+function actualizarCambio() {
+  const input = document.getElementById('billeteInput');
+  const monto = parseFloat(input.value) || 0;
+  const total = calcTotal();
+  const box   = document.getElementById('cambioBox');
+  const noAlc = document.getElementById('sinCambioMsg');
+
+  if (!monto) { box.style.display='none'; noAlc.style.display='none'; return; }
+
+  if (monto < total) {
+    box.style.display = 'none';
+    noAlc.style.display = 'block';
+  } else {
+    noAlc.style.display = 'none';
+    box.style.display = 'flex';
+    document.getElementById('cambioVal').textContent = '$' + (monto - total);
+  }
 }
 
-function renderMenu() {
-  const cont = document.getElementById('menuItems');
-  cont.innerHTML = '';
-  MENU.forEach(item => {
-    const bloque = document.createElement('div');
-    bloque.style.cssText = 'background:#111118;border-radius:8px;padding:10px 12px;border:1.5px solid rgba(255,255,255,0.09);';
-    const sel = pedido[item.id];
-
-    let varsHtml = item.variantes.map((v,i) => {
-      const activo = sel && sel.vi === i;
-      return `<button onclick="elegirVariante('${item.id}',${i})" style="background:${activo?'#e8ff00':'transparent'};color:${activo?'#000':'#aaa'};border:1px solid ${activo?'#e8ff00':'rgba(255,255,255,0.12)'};border-radius:5px;padding:4px 10px;font-size:0.72rem;cursor:pointer;margin:2px;font-family:inherit;font-weight:${activo?'700':'400'};">${v.label} — $${v.precio}</button>`;
-    }).join('');
-
-    let cantHtml = sel ? `<div style="display:flex;align-items:center;gap:8px;margin-top:8px;">
-      <button onclick="cambiarCant('${item.id}',-1)" style="width:24px;height:24px;border-radius:50%;border:1px solid rgba(255,255,255,0.15);background:#1a1a24;color:#fff;cursor:pointer;font-size:1rem;font-weight:700;">−</button>
-      <span style="font-weight:700;font-size:0.9rem;">${sel.qty}</span>
-      <button onclick="cambiarCant('${item.id}',1)" style="width:24px;height:24px;border-radius:50%;border:1px solid rgba(255,255,255,0.15);background:#1a1a24;color:#fff;cursor:pointer;font-size:1rem;font-weight:700;">+</button>
-      <span style="font-size:0.75rem;color:#e8ff00;margin-left:4px;">$${item.variantes[sel.vi].precio * sel.qty}</span>
-      <button onclick="quitarProducto('${item.id}')" style="margin-left:auto;background:transparent;color:#ff4d00;border:1px solid rgba(255,77,0,0.4);border-radius:5px;padding:2px 8px;font-size:0.7rem;cursor:pointer;font-family:inherit;">✕ Quitar</button>
-    </div>` : '';
-
-    // Escarchado: una fila por cada michelada pedida
-    let escarcheHtml = '';
-    if (item.id === 'miche' && sel) {
-      const filas = Array.from({length: sel.qty}, (_, idx) => {
-        const saborActual = escarchesPorMiche[idx] || null;
-        const bts = SABORES.map(s => {
-          const activo = saborActual === s.key;
-          return `<button onclick="toggleEscarche(${idx},'${s.key}')" style="background:${activo?'#e8ff00':'transparent'};color:${activo?'#000':'#aaa'};border:1px solid ${activo?'#e8ff00':'rgba(255,255,255,0.15)'};border-radius:5px;padding:3px 9px;font-size:0.7rem;cursor:pointer;margin:2px;font-family:inherit;font-weight:${activo?'700':'400'};">${s.emoji} ${s.key}</button>`;
-        }).join('');
-        const quitarBtn = saborActual
-          ? `<button onclick="toggleEscarche(${idx}, '${saborActual}')" style="background:transparent;color:#ff4d00;border:1px solid rgba(255,77,0,0.4);border-radius:5px;padding:3px 9px;font-size:0.7rem;cursor:pointer;margin:2px;font-family:inherit;">✕ Quitar</button>`
-          : '';
-        const elegido = saborActual
-          ? `<span style="font-size:0.65rem;color:#e8ff00;margin-left:6px;">✓ ${saborActual}</span>`
-          : `<span style="font-size:0.65rem;color:#555;margin-left:6px;">sin escarche</span>`;
-        return `<div style="margin-bottom:6px;">
-          <div style="font-size:0.62rem;letter-spacing:1.5px;text-transform:uppercase;color:#777;margin-bottom:3px;">
-            Miche ${idx+1} ${elegido}
-          </div>
-          <div style="display:flex;flex-wrap:wrap;gap:2px;">${bts}${quitarBtn}</div>
-        </div>`;
-      }).join('');
-      escarcheHtml = `<div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.07);">
-        <div style="font-size:0.62rem;letter-spacing:2px;text-transform:uppercase;color:#e8ff00;font-weight:700;margin-bottom:7px;">
-          🥂 Escarchado <span style="background:#e8ff00;color:#000;font-size:0.52rem;padding:0.12rem 0.35rem;border-radius:2px;margin-left:4px;">SIN COSTO</span>
-          <span style="color:#555;font-weight:400;margin-left:6px;font-size:0.58rem;">toca de nuevo para quitar</span>
-        </div>
-        ${filas}
-      </div>`;
-    }
-
-    bloque.innerHTML = `<div style="font-size:0.82rem;font-weight:700;letter-spacing:1px;text-transform:uppercase;margin-bottom:6px;">${item.emoji} ${item.nombre}</div><div style="display:flex;flex-wrap:wrap;gap:3px;">${varsHtml}</div>${cantHtml}${escarcheHtml}`;
-    cont.appendChild(bloque);
+function calcTotal() {
+  let t = 0;
+  // miches
+  pedidoMiches.forEach(m => { t += MENU[0].variantes[m.vi].precio * m.qty; });
+  // resto
+  Object.keys(pedido).forEach(id => {
+    const item = MENU.find(x => x.id === id);
+    t += item.variantes[pedido[id].vi].precio * pedido[id].qty;
   });
+  return t;
 }
 
-function quitarProducto(id) {
-  delete pedido[id];
-  if (id === 'miche') escarchesPorMiche = [];
+// ── MICHELADAS (múltiples variantes) ──
+function agregarVarianteMiche(vi) {
+  // Si ya existe esa variante, solo suma 1
+  const exist = pedidoMiches.find(m => m.vi === vi);
+  if (exist) { exist.qty++; }
+  else { pedidoMiches.push({ vi, qty: 1, escarche: null }); }
   renderMenu(); actualizarResumen();
 }
 
+function cambiarCantMiche(vi, delta) {
+  const idx = pedidoMiches.findIndex(m => m.vi === vi);
+  if (idx < 0) return;
+  pedidoMiches[idx].qty = Math.max(1, pedidoMiches[idx].qty + delta);
+  renderMenu(); actualizarResumen();
+}
+
+function quitarVarianteMiche(vi) {
+  pedidoMiches = pedidoMiches.filter(m => m.vi !== vi);
+  renderMenu(); actualizarResumen();
+}
+
+function toggleEscharcheMiche(vi, sabor) {
+  const m = pedidoMiches.find(x => x.vi === vi);
+  if (!m) return;
+  m.escarche = (m.escarche === sabor) ? null : sabor;
+  renderMenu(); actualizarResumen();
+}
+
+// ── RESTO DE PRODUCTOS ──
 function elegirVariante(id, vi) {
-  const prevQty = pedido[id] ? pedido[id].qty : 1;
-  pedido[id] = { vi, qty: prevQty };
-  // Si cambia cantidad de miches, recortar el array de escarches sobrantes
-  if (id === 'miche') escarchesPorMiche = escarchesPorMiche.slice(0, prevQty);
+  pedido[id] = { vi, qty: pedido[id] ? pedido[id].qty : 1 };
   renderMenu(); actualizarResumen();
 }
 
 function cambiarCant(id, delta) {
   if (!pedido[id]) return;
-  const nuevaCant = Math.max(1, pedido[id].qty + delta);
-  pedido[id].qty = nuevaCant;
-  // Si bajamos cantidad de miches, recortar escarches sobrantes
-  if (id === 'miche') escarchesPorMiche = escarchesPorMiche.slice(0, nuevaCant);
+  pedido[id].qty = Math.max(1, pedido[id].qty + delta);
   renderMenu(); actualizarResumen();
 }
 
-function actualizarResumen() {
-  const keys = Object.keys(pedido);
-  const lineas = document.getElementById('resumenLineas');
-  const totalEl = document.getElementById('totalVal');
-  if (!keys.length) {
-    lineas.innerHTML = '<span style="color:#555;font-size:0.82rem;">Aún no seleccionas nada</span>';
-    totalEl.textContent = '$0';
-    return;
-  }
-  let total = 0, html = '';
-  keys.forEach(id => {
-    const item = MENU.find(m => m.id === id);
-    const o = pedido[id];
-    const v = item.variantes[o.vi];
-    const sub = v.precio * o.qty;
-    total += sub;
-    html += `<div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-bottom:3px;color:#ddd;"><span>${item.emoji} ${item.nombre} — ${v.label} ×${o.qty}</span><span style="color:#e8ff00;font-weight:700;">$${sub}</span></div>`;
-    if (id === 'miche') {
-      Array.from({length: o.qty}, (_, i) => {
-        const s = escarchesPorMiche[i];
-        html += `<div style="font-size:0.72rem;color:#888;padding-left:10px;margin-bottom:2px;">↳ Miche ${i+1}: ${s ? `<span style="color:#e8ff00;">${s} (sin costo)</span>` : 'sin escarche'}</div>`;
-      });
-    }
-  });
-  lineas.innerHTML = html;
-  totalEl.textContent = '$' + total;
+function quitarProducto(id) {
+  delete pedido[id];
+  renderMenu(); actualizarResumen();
 }
 
+// ── RENDER ──
+function renderMenu() {
+  const cont = document.getElementById('menuItems');
+  cont.innerHTML = '';
+
+  MENU.forEach(item => {
+    const bloque = document.createElement('div');
+    bloque.style.cssText = 'background:#111118;border-radius:8px;padding:10px 12px;border:1.5px solid rgba(255,255,255,0.09);';
+
+    if (item.id === 'miche') {
+      // Micheladas: cada variante es un botón de agregar independiente
+      const varBtns = item.variantes.map((v, vi) => {
+        const yaAgregada = pedidoMiches.find(m => m.vi === vi);
+        return `<button onclick="agregarVarianteMiche(${vi})" style="background:${yaAgregada?'#e8ff00':'transparent'};color:${yaAgregada?'#000':'#aaa'};border:1px solid ${yaAgregada?'#e8ff00':'rgba(255,255,255,0.12)'};border-radius:5px;padding:4px 10px;font-size:0.72rem;cursor:pointer;margin:2px;font-family:inherit;font-weight:${yaAgregada?'700':'400'};">${v.label} — $${v.precio}</button>`;
+      }).join('');
+
+      // Filas por variante seleccionada
+      const filasActivas = pedidoMiches.map(m => {
+        const v = item.variantes[m.vi];
+        const escBtns = SABORES.map(s => {
+          const activo = m.escarche === s.key;
+          return `<button onclick="toggleEscharcheMiche(${m.vi},'${s.key}')" style="background:${activo?'#e8ff00':'transparent'};color:${activo?'#000':'#aaa'};border:1px solid ${activo?'#e8ff00':'rgba(255,255,255,0.15)'};border-radius:5px;padding:3px 9px;font-size:0.68rem;cursor:pointer;margin:2px;font-family:inherit;font-weight:${activo?'700':'400'};">${s.emoji} ${s.key}</button>`;
+        }).join('');
+        const quitarEsc = m.escarche
+          ? `<button onclick="toggleEscharcheMiche(${m.vi},'${m.escarche}')" style="background:transparent;color:#ff4d00;border:1px solid rgba(255,77,0,0.4);border-radius:5px;padding:3px 8px;font-size:0.68rem;cursor:pointer;margin:2px;font-family:inherit;">✕ Quitar escarche</button>`
+          : '';
+        return `<div style="margin-top:8px;padding:8px;background:#0a0a0f;border-radius:6px;border:1px solid rgba(232,255,0,0.12);">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+            <span style="font-size:0.75rem;font-weight:700;color:#e8ff00;">${v.label}</span>
+            <button onclick="quitarVarianteMiche(${m.vi})" style="background:transparent;color:#ff4d00;border:1px solid rgba(255,77,0,0.4);border-radius:5px;padding:2px 8px;font-size:0.68rem;cursor:pointer;font-family:inherit;">✕ Quitar</button>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+            <button onclick="cambiarCantMiche(${m.vi},-1)" style="width:22px;height:22px;border-radius:50%;border:1px solid rgba(255,255,255,0.15);background:#1a1a24;color:#fff;cursor:pointer;font-size:0.9rem;font-weight:700;">−</button>
+            <span style="font-weight:700;font-size:0.85rem;">${m.qty}</span>
+            <button onclick="cambiarCantMiche(${m.vi},1)" style="width:22px;height:22px;border-radius:50%;border:1px solid rgba(255,255,255,0.15);background:#1a1a24;color:#fff;cursor:pointer;font-size:0.9rem;font-weight:700;">+</button>
+            <span style="font-size:0.72rem;color:#e8ff00;">$${v.precio * m.qty}</span>
+          </div>
+          <div style="font-size:0.6rem;letter-spacing:2px;text-transform:uppercase;color:#e8ff00;font-weight:700;margin-bottom:4px;">🥂 Escarchado <span style="background:#e8ff00;color:#000;font-size:0.5rem;padding:0.1rem 0.3rem;border-radius:2px;margin-left:3px;">SIN COSTO</span>${m.escarche ? ` <span style="color:#fff;font-weight:400;">✓ ${m.escarche}</span>` : ''}</div>
+          <div style="display:flex;flex-wrap:wrap;gap:2px;">${escBtns}${quitarEsc}</div>
+        </div>`;
+      }).join('');
+
+      bloque.innerHTML = `<div style="font-size:0.82rem;font-weight:700;letter-spacing:1px;text-transform:uppercase;margin-bottom:6px;">${item.emoji} ${item.nombre}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:3px;">${varBtns}</div>
+        ${filasActivas}`;
+
+    } else {
+      // Resto de productos: comportamiento normal
+      const sel = pedido[item.id];
+      const varsHtml = item.variantes.map((v,i) => {
+        const activo = sel && sel.vi === i;
+        return `<button onclick="elegirVariante('${item.id}',${i})" style="background:${activo?'#e8ff00':'transparent'};color:${activo?'#000':'#aaa'};border:1px solid ${activo?'#e8ff00':'rgba(255,255,255,0.12)'};border-radius:5px;padding:4px 10px;font-size:0.72rem;cursor:pointer;margin:2px;font-family:inherit;font-weight:${activo?'700':'400'};">${v.label} — $${v.precio}</button>`;
+      }).join('');
+      const cantHtml = sel ? `<div style="display:flex;align-items:center;gap:8px;margin-top:8px;">
+        <button onclick="cambiarCant('${item.id}',-1)" style="width:24px;height:24px;border-radius:50%;border:1px solid rgba(255,255,255,0.15);background:#1a1a24;color:#fff;cursor:pointer;font-size:1rem;font-weight:700;">−</button>
+        <span style="font-weight:700;font-size:0.9rem;">${sel.qty}</span>
+        <button onclick="cambiarCant('${item.id}',1)" style="width:24px;height:24px;border-radius:50%;border:1px solid rgba(255,255,255,0.15);background:#1a1a24;color:#fff;cursor:pointer;font-size:1rem;font-weight:700;">+</button>
+        <span style="font-size:0.75rem;color:#e8ff00;margin-left:4px;">$${item.variantes[sel.vi].precio * sel.qty}</span>
+        <button onclick="quitarProducto('${item.id}')" style="margin-left:auto;background:transparent;color:#ff4d00;border:1px solid rgba(255,77,0,0.4);border-radius:5px;padding:2px 8px;font-size:0.7rem;cursor:pointer;font-family:inherit;">✕ Quitar</button>
+      </div>` : '';
+      bloque.innerHTML = `<div style="font-size:0.82rem;font-weight:700;letter-spacing:1px;text-transform:uppercase;margin-bottom:6px;">${item.emoji} ${item.nombre}</div><div style="display:flex;flex-wrap:wrap;gap:3px;">${varsHtml}</div>${cantHtml}`;
+    }
+
+    cont.appendChild(bloque);
+  });
+}
+
+// ── RESUMEN ──
+function actualizarResumen() {
+  const lineas  = document.getElementById('resumenLineas');
+  const totalEl = document.getElementById('totalVal');
+  const total   = calcTotal();
+  const hayAlgo = pedidoMiches.length > 0 || Object.keys(pedido).length > 0;
+
+  if (!hayAlgo) {
+    lineas.innerHTML = '<span style="color:#555;font-size:0.82rem;">Aún no seleccionas nada</span>';
+    totalEl.textContent = '$0';
+    actualizarCambio();
+    return;
+  }
+
+  let html = '';
+  // Miches
+  pedidoMiches.forEach(m => {
+    const v = MENU[0].variantes[m.vi];
+    html += `<div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-bottom:2px;color:#ddd;"><span>${v.label} ×${m.qty}</span><span style="color:#e8ff00;font-weight:700;">$${v.precio * m.qty}</span></div>`;
+    html += `<div style="font-size:0.72rem;color:#888;padding-left:10px;margin-bottom:3px;">↳ Escarche: ${m.escarche ? `<span style="color:#e8ff00;">${m.escarche}</span>` : 'ninguno'}</div>`;
+  });
+  // Resto
+  Object.keys(pedido).forEach(id => {
+    const item = MENU.find(x => x.id === id);
+    const o = pedido[id];
+    const v = item.variantes[o.vi];
+    html += `<div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-bottom:3px;color:#ddd;"><span>${item.nombre} — ${v.label} ×${o.qty}</span><span style="color:#e8ff00;font-weight:700;">$${v.precio * o.qty}</span></div>`;
+  });
+
+  lineas.innerHTML = html;
+  totalEl.textContent = '$' + total;
+  actualizarCambio();
+}
+
+// ── WHATSAPP ──
 function enviarWA() {
-  const keys = Object.keys(pedido);
-  if (!keys.length) { alert('Selecciona al menos un producto'); return false; }
+  const hayAlgo = pedidoMiches.length > 0 || Object.keys(pedido).length > 0;
+  if (!hayAlgo) { alert('Selecciona al menos un producto'); return false; }
   let msg = '¡Hola! Quiero hacer un pedido:\n\n';
   let total = 0;
-  keys.forEach(id => {
-    const item = MENU.find(m => m.id === id);
+  pedidoMiches.forEach(m => {
+    const v = MENU[0].variantes[m.vi];
+    const sub = v.precio * m.qty;
+    total += sub;
+    msg += `• Michelada ${v.label} ×${m.qty} = $${sub}\n`;
+    msg += `  ↳ Escarche: ${m.escarche || 'Ninguno'} (sin costo)\n`;
+  });
+  Object.keys(pedido).forEach(id => {
+    const item = MENU.find(x => x.id === id);
     const o = pedido[id];
     const v = item.variantes[o.vi];
     const sub = v.precio * o.qty;
     total += sub;
     msg += `• ${item.nombre} — ${v.label} ×${o.qty} = $${sub}\n`;
-    if (id === 'miche') {
-      Array.from({length: o.qty}, (_, i) => {
-        const s = escarchesPorMiche[i];
-        msg += `  ↳ Miche ${i+1}: ${s ? `Escarchado ${s} (sin costo)` : 'Sin escarche'}\n`;
-      });
-    }
   });
-  msg += `\nTotal estimado: $${total}`;
+  msg += `\nTotal: $${total}`;
+  const monto = parseFloat(document.getElementById('billeteInput').value) || 0;
+  if (monto >= total && monto > 0) msg += `\nPaga con: $${monto} | Cambio: $${monto - total}`;
+  else if (monto > 0) msg += `\nPaga con: $${monto} (⚠️ no alcanza)`;
   const nota = document.getElementById('notaExtra').value.trim();
   if (nota) msg += `\n\nNotas: ${nota}`;
   window.open(`https://wa.me/${WA_PHONE}?text=${encodeURIComponent(msg)}`, '_blank');
