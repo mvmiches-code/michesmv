@@ -11,8 +11,8 @@
       --surface: #111118;
       --surface2: #1a1a24;
       --accent: #e8ff00;           
-      --accent2: #ff4d00;
-      --text: #f0f0f0;
+      --accent2: #ff4d00;      
+      --text: #f0f0f0;                   
       --muted: #777;
       --border: rgba(255,255,255,0.07);
     }
@@ -361,11 +361,19 @@
 
 <script>
 const WA_PHONE = '522213451262';
+
 const SABORES = [
   {key:'Ajonjolí', emoji:'🌿'},
   {key:'Dulce',    emoji:'🍬'},
   {key:'Sandía',   emoji:'🍉'},
   {key:'Tajín',    emoji:'🌶️'}
+];
+
+// Marcas de cerveza disponibles
+const CHELAS = [
+  {key:'XX Lager',  emoji:'🟡'},
+  {key:'Victoria',  emoji:'🔴'},
+  {key:'Indio',     emoji:'🟤'},
 ];
 
 const MENU = [
@@ -398,11 +406,11 @@ const MENU = [
   ]}
 ];
 
-// pedido: { [id]: { vi, qty } }
-// Para micheladas: permitimos múltiples variantes al mismo tiempo
-// pedidoMiches: array de { vi, qty, escarche }  — una entrada por variante elegida
+// pedidoMiches: [{ vi, qty, escarcheA, escarcheB, chela }]
+// escarcheA y escarcheB pueden ser null o string (key del sabor)
+// Solo se permiten 2 escarcheS distintos max, o 1, o ninguno
 let pedido = {};
-let pedidoMiches = []; // [{vi, qty, escarche}, ...]
+let pedidoMiches = [];
 
 // ── BILLETE ──
 function actualizarCambio() {
@@ -411,9 +419,7 @@ function actualizarCambio() {
   const total = calcTotal();
   const box   = document.getElementById('cambioBox');
   const noAlc = document.getElementById('sinCambioMsg');
-
   if (!monto) { box.style.display='none'; noAlc.style.display='none'; return; }
-
   if (monto < total) {
     box.style.display = 'none';
     noAlc.style.display = 'block';
@@ -426,9 +432,7 @@ function actualizarCambio() {
 
 function calcTotal() {
   let t = 0;
-  // miches
   pedidoMiches.forEach(m => { t += MENU[0].variantes[m.vi].precio * m.qty; });
-  // resto
   Object.keys(pedido).forEach(id => {
     const item = MENU.find(x => x.id === id);
     t += item.variantes[pedido[id].vi].precio * pedido[id].qty;
@@ -436,12 +440,11 @@ function calcTotal() {
   return t;
 }
 
-// ── MICHELADAS (múltiples variantes) ──
+// ── MICHELADAS ──
 function agregarVarianteMiche(vi) {
-  // Si ya existe esa variante, solo suma 1
   const exist = pedidoMiches.find(m => m.vi === vi);
   if (exist) { exist.qty++; }
-  else { pedidoMiches.push({ vi, qty: 1, escarche: null }); }
+  else { pedidoMiches.push({ vi, qty:1, escarcheA:null, escarcheB:null, chela:null }); }
   renderMenu(); actualizarResumen();
 }
 
@@ -457,10 +460,34 @@ function quitarVarianteMiche(vi) {
   renderMenu(); actualizarResumen();
 }
 
+// Toggle escarche: si no hay A, pone en A. Si ya está en A quita. Si hay A distinto y no hay B, pone en B. Si está en B, quita. Si A y B llenos y no es ninguno: no hace nada (ya hay 2).
 function toggleEscharcheMiche(vi, sabor) {
   const m = pedidoMiches.find(x => x.vi === vi);
   if (!m) return;
-  m.escarche = (m.escarche === sabor) ? null : sabor;
+
+  if (m.escarcheA === sabor) {
+    // quitar de A, promover B a A
+    m.escarcheA = m.escarcheB;
+    m.escarcheB = null;
+  } else if (m.escarcheB === sabor) {
+    // quitar de B
+    m.escarcheB = null;
+  } else {
+    // no está seleccionado
+    if (!m.escarcheA) {
+      m.escarcheA = sabor;
+    } else if (!m.escarcheB) {
+      m.escarcheB = sabor;
+    }
+    // si ya hay 2, ignorar (ya están llenos)
+  }
+  renderMenu(); actualizarResumen();
+}
+
+function toggleChelaMiche(vi, chela) {
+  const m = pedidoMiches.find(x => x.vi === vi);
+  if (!m) return;
+  m.chela = (m.chela === chela) ? null : chela;
   renderMenu(); actualizarResumen();
 }
 
@@ -491,35 +518,73 @@ function renderMenu() {
     bloque.style.cssText = 'background:#111118;border-radius:8px;padding:10px 12px;border:1.5px solid rgba(255,255,255,0.09);';
 
     if (item.id === 'miche') {
-      // Micheladas: cada variante es un botón de agregar independiente
       const varBtns = item.variantes.map((v, vi) => {
         const yaAgregada = pedidoMiches.find(m => m.vi === vi);
         return `<button onclick="agregarVarianteMiche(${vi})" style="background:${yaAgregada?'#e8ff00':'transparent'};color:${yaAgregada?'#000':'#aaa'};border:1px solid ${yaAgregada?'#e8ff00':'rgba(255,255,255,0.12)'};border-radius:5px;padding:4px 10px;font-size:0.72rem;cursor:pointer;margin:2px;font-family:inherit;font-weight:${yaAgregada?'700':'400'};">${v.label} — $${v.precio}</button>`;
       }).join('');
 
-      // Filas por variante seleccionada
       const filasActivas = pedidoMiches.map(m => {
         const v = item.variantes[m.vi];
+
+        // Botones de escarchado — máx 2 distintos
+        const totalSeleccionados = [m.escarcheA, m.escarcheB].filter(Boolean).length;
         const escBtns = SABORES.map(s => {
-          const activo = m.escarche === s.key;
-          return `<button onclick="toggleEscharcheMiche(${m.vi},'${s.key}')" style="background:${activo?'#e8ff00':'transparent'};color:${activo?'#000':'#aaa'};border:1px solid ${activo?'#e8ff00':'rgba(255,255,255,0.15)'};border-radius:5px;padding:3px 9px;font-size:0.68rem;cursor:pointer;margin:2px;font-family:inherit;font-weight:${activo?'700':'400'};">${s.emoji} ${s.key}</button>`;
+          const esA = m.escarcheA === s.key;
+          const esB = m.escarcheB === s.key;
+          const activo = esA || esB;
+          const lleno = totalSeleccionados >= 2 && !activo; // ya hay 2 y este no está
+          // Mostrar badge A / B si está seleccionado
+          const badge = esA ? ' [1°]' : (esB ? ' [2°]' : '');
+          return `<button onclick="${lleno ? '' : `toggleEscharcheMiche(${m.vi},'${s.key}')`}" style="background:${activo?'#e8ff00':'transparent'};color:${activo?'#000':(lleno?'#444':'#aaa')};border:1px solid ${activo?'#e8ff00':(lleno?'rgba(255,255,255,0.05)':'rgba(255,255,255,0.15)')};border-radius:5px;padding:3px 9px;font-size:0.68rem;cursor:${lleno?'not-allowed':'pointer'};margin:2px;font-family:inherit;font-weight:${activo?'700':'400'};opacity:${lleno?'0.4':'1'};">${s.emoji} ${s.key}${badge}</button>`;
         }).join('');
-        const quitarEsc = m.escarche
-          ? `<button onclick="toggleEscharcheMiche(${m.vi},'${m.escarche}')" style="background:transparent;color:#ff4d00;border:1px solid rgba(255,77,0,0.4);border-radius:5px;padding:3px 8px;font-size:0.68rem;cursor:pointer;margin:2px;font-family:inherit;">✕ Quitar escarche</button>`
+
+        // Texto resumen escarche
+        let escResumen = 'ninguno';
+        if (m.escarcheA && m.escarcheB) escResumen = `${m.escarcheA} + ${m.escarcheB}`;
+        else if (m.escarcheA) escResumen = m.escarcheA;
+
+        // Botón limpiar escarche
+        const limpiarEsc = (m.escarcheA || m.escarcheB)
+          ? `<button onclick="limpiarEscharcheMiche(${m.vi})" style="background:transparent;color:#ff4d00;border:1px solid rgba(255,77,0,0.4);border-radius:5px;padding:3px 8px;font-size:0.68rem;cursor:pointer;margin:2px;font-family:inherit;">✕ Quitar todo</button>`
           : '';
+
+        // Botones de chela
+        const chelaBtns = CHELAS.map(c => {
+          const activo = m.chela === c.key;
+          return `<button onclick="toggleChelaMiche(${m.vi},'${c.key}')" style="background:${activo?'#e8ff00':'transparent'};color:${activo?'#000':'#aaa'};border:1px solid ${activo?'#e8ff00':'rgba(255,255,255,0.15)'};border-radius:5px;padding:3px 9px;font-size:0.68rem;cursor:pointer;margin:2px;font-family:inherit;font-weight:${activo?'700':'400'};">${c.emoji} ${c.key}</button>`;
+        }).join('');
+
         return `<div style="margin-top:8px;padding:8px;background:#0a0a0f;border-radius:6px;border:1px solid rgba(232,255,0,0.12);">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
             <span style="font-size:0.75rem;font-weight:700;color:#e8ff00;">${v.label}</span>
             <button onclick="quitarVarianteMiche(${m.vi})" style="background:transparent;color:#ff4d00;border:1px solid rgba(255,77,0,0.4);border-radius:5px;padding:2px 8px;font-size:0.68rem;cursor:pointer;font-family:inherit;">✕ Quitar</button>
           </div>
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
             <button onclick="cambiarCantMiche(${m.vi},-1)" style="width:22px;height:22px;border-radius:50%;border:1px solid rgba(255,255,255,0.15);background:#1a1a24;color:#fff;cursor:pointer;font-size:0.9rem;font-weight:700;">−</button>
             <span style="font-weight:700;font-size:0.85rem;">${m.qty}</span>
             <button onclick="cambiarCantMiche(${m.vi},1)" style="width:22px;height:22px;border-radius:50%;border:1px solid rgba(255,255,255,0.15);background:#1a1a24;color:#fff;cursor:pointer;font-size:0.9rem;font-weight:700;">+</button>
             <span style="font-size:0.72rem;color:#e8ff00;">$${v.precio * m.qty}</span>
           </div>
-          <div style="font-size:0.6rem;letter-spacing:2px;text-transform:uppercase;color:#e8ff00;font-weight:700;margin-bottom:4px;">🥂 Escarchado <span style="background:#e8ff00;color:#000;font-size:0.5rem;padding:0.1rem 0.3rem;border-radius:2px;margin-left:3px;">SIN COSTO</span>${m.escarche ? ` <span style="color:#fff;font-weight:400;">✓ ${m.escarche}</span>` : ''}</div>
-          <div style="display:flex;flex-wrap:wrap;gap:2px;">${escBtns}${quitarEsc}</div>
+
+          <!-- ESCARCHADO (máx 2) -->
+          <div style="margin-bottom:8px;">
+            <div style="font-size:0.6rem;letter-spacing:2px;text-transform:uppercase;color:#e8ff00;font-weight:700;margin-bottom:4px;">
+              🥂 Escarchado <span style="background:#e8ff00;color:#000;font-size:0.5rem;padding:0.1rem 0.3rem;border-radius:2px;margin-left:3px;">SIN COSTO</span>
+              <span style="color:rgba(255,255,255,0.35);font-weight:400;font-size:0.55rem;margin-left:4px;">Elige hasta 2</span>
+              ${(m.escarcheA||m.escarcheB) ? `<span style="color:#fff;font-weight:400;margin-left:4px;">✓ ${escResumen}</span>` : ''}
+            </div>
+            <div style="display:flex;flex-wrap:wrap;gap:2px;">${escBtns}${limpiarEsc}</div>
+          </div>
+
+          <!-- MARCA DE CHELA -->
+          <div>
+            <div style="font-size:0.6rem;letter-spacing:2px;text-transform:uppercase;color:#e8ff00;font-weight:700;margin-bottom:4px;">
+              🍺 ¿De qué chela?
+              <span style="color:rgba(255,255,255,0.35);font-weight:400;font-size:0.55rem;margin-left:4px;">Opcional</span>
+              ${m.chela ? `<span style="color:#fff;font-weight:400;margin-left:4px;">✓ ${m.chela}</span>` : ''}
+            </div>
+            <div style="display:flex;flex-wrap:wrap;gap:2px;">${chelaBtns}</div>
+          </div>
         </div>`;
       }).join('');
 
@@ -528,7 +593,6 @@ function renderMenu() {
         ${filasActivas}`;
 
     } else {
-      // Resto de productos: comportamiento normal
       const sel = pedido[item.id];
       const varsHtml = item.variantes.map((v,i) => {
         const activo = sel && sel.vi === i;
@@ -548,6 +612,14 @@ function renderMenu() {
   });
 }
 
+function limpiarEscharcheMiche(vi) {
+  const m = pedidoMiches.find(x => x.vi === vi);
+  if (!m) return;
+  m.escarcheA = null;
+  m.escarcheB = null;
+  renderMenu(); actualizarResumen();
+}
+
 // ── RESUMEN ──
 function actualizarResumen() {
   const lineas  = document.getElementById('resumenLineas');
@@ -563,13 +635,15 @@ function actualizarResumen() {
   }
 
   let html = '';
-  // Miches
   pedidoMiches.forEach(m => {
     const v = MENU[0].variantes[m.vi];
+    let escResumen = 'Sin escarche';
+    if (m.escarcheA && m.escarcheB) escResumen = `${m.escarcheA} + ${m.escarcheB}`;
+    else if (m.escarcheA) escResumen = m.escarcheA;
+    const chelaLabel = m.chela ? ` · ${m.chela}` : '';
     html += `<div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-bottom:2px;color:#ddd;"><span>${v.label} ×${m.qty}</span><span style="color:#e8ff00;font-weight:700;">$${v.precio * m.qty}</span></div>`;
-    html += `<div style="font-size:0.72rem;color:#888;padding-left:10px;margin-bottom:3px;">↳ Escarche: ${m.escarche ? `<span style="color:#e8ff00;">${m.escarche}</span>` : 'ninguno'}</div>`;
+    html += `<div style="font-size:0.72rem;color:#888;padding-left:10px;margin-bottom:3px;">↳ Escarche: <span style="color:#e8ff00;">${escResumen}</span>${chelaLabel ? ` · Chela: <span style="color:#e8ff00;">${m.chela}</span>` : ''}</div>`;
   });
-  // Resto
   Object.keys(pedido).forEach(id => {
     const item = MENU.find(x => x.id === id);
     const o = pedido[id];
@@ -593,7 +667,11 @@ function enviarWA() {
     const sub = v.precio * m.qty;
     total += sub;
     msg += `• Michelada ${v.label} ×${m.qty} = $${sub}\n`;
-    msg += `  ↳ Escarche: ${m.escarche || 'Ninguno'} (sin costo)\n`;
+    let escLabel = 'Ninguno';
+    if (m.escarcheA && m.escarcheB) escLabel = `${m.escarcheA} + ${m.escarcheB}`;
+    else if (m.escarcheA) escLabel = m.escarcheA;
+    msg += `  ↳ Escarche: ${escLabel} (sin costo)\n`;
+    if (m.chela) msg += `  ↳ Chela: ${m.chela}\n`;
   });
   Object.keys(pedido).forEach(id => {
     const item = MENU.find(x => x.id === id);
@@ -624,4 +702,3 @@ document.querySelectorAll('.filter-btn').forEach(btn => {
 </script>
 </body>
 </html>
-
